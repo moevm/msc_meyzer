@@ -52,6 +52,7 @@ misrepresented as being the original software.
 #include "Windows/WindowsHWrapper.h"
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "Windows/AllowWindowsPlatformAtomics.h"
+// #include "WindowsApplication.h" #include "Windows/WindowsSystemIncludes.h" #include "AllowWindowsPlatformTypes.h" #include Commdlg.h
 
 #ifdef	__cplusplus
 /* if tinydialogs.c is compiled as C++ code rather than C code, you may need to comment this out

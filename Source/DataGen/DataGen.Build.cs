@@ -11,6 +11,7 @@ public class DataGen : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "ProceduralMeshComponent" });
 		string ProjectPath = Path.Combine(ModuleDirectory, "..", "..");
 		string ThirdPartyPath = Path.Combine(ProjectPath, "ThirdParty");
 
