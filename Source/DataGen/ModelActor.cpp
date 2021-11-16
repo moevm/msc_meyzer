@@ -42,19 +42,13 @@ void AModelActor::SetModel(const UAssimpModel& assimpModel)
 {
     for (int32 section = 0; section < assimpModel._sectionCount; ++section)
     {
-        // TODO: One ProceduralMeshComponent probably can't have multiple meshes.
-        mesh->CreateMeshSection_LinearColor(section, assimpModel._vertices[section], assimpModel._indices[section], assimpModel._normals[section], assimpModel._uvs[section], assimpModel._vertexColors[section], assimpModel._tangents[section], false);
+        mesh->CreateMeshSection_LinearColor(section, assimpModel._vertices[section], assimpModel._indices[section], assimpModel._normals[section], assimpModel._uvs[section], assimpModel._vertexColors[section], assimpModel._tangents[section], true);
     }
-
 
     for (int32 i = 0; i < mesh->GetNumSections(); ++i)
     {
         auto MaterialDyn = UMaterialInstanceDynamic::Create(Material, this);
         mesh->SetMaterial(i, MaterialDyn);
-        if (!mesh->GetMaterial(i) || !mesh->IsMeshSectionVisible(i))
-        {
-            volatile auto msg = "NOT VISIBLE!";
-        }
     }
 
     mesh->CastShadow = true;

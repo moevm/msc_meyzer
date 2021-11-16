@@ -28,5 +28,5 @@ class DATAGEN_API UAssimpBPLibrary : public UBlueprintFunctionLibrary
 private:
 
 	static void ProcessMesh(UAssimpModel* model, aiMesh* mesh, const aiScene* scene);
-	static void ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene);
+	static void ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene, const FTransform& parentTransform = FTransform::Identity);
 };

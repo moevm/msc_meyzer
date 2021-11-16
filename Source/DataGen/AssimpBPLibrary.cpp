@@ -4,6 +4,26 @@
 #include "Logging/LogMacros.h"
 #include "Kismet/GameplayStatics.h"
 
+namespace 
+{
+    FTransform getFTransform(const aiMatrix4x4& matrix)
+    {
+        FMatrix fMatrix;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                fMatrix.M[i][j] = matrix[j][i];
+            }
+        }
+        
+        FTransform result{ fMatrix };
+        
+        return result;
+    }
+}
+
 AModelActor* UAssimpBPLibrary::LoadModel(const FString& actorName, const FString& modelPath, const FTransform& transform, AActor* parent, FString& ErrorCode)
 {
     Assimp::Importer importer;
@@ -31,17 +51,20 @@ AModelActor* UAssimpBPLibrary::LoadModel(const FString& actorName, const FString
     return deferredActor;
 }
 
-void UAssimpBPLibrary::ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene)
+void UAssimpBPLibrary::ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene, const FTransform& parentTransform /*= FTransform::Identity*/)
 {
+    const FTransform currentTransform = getFTransform(node->mTransformation);
+
     for (uint32 i = 0; i < node->mNumMeshes; ++i) {
-        aiMesh* mesh = scene->mMeshes[i];
+        aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
         ProcessMesh(model, mesh, scene);
+        model->_transforms.Add(currentTransform);
         ++model->_sectionCount;
     }
 
     // do the same for all of its children
     for (uint32 i = 0; i < node->mNumChildren; ++i) {
-        ProcessNode(model, node->mChildren[i], scene);
+        ProcessNode(model, node->mChildren[i], scene, currentTransform);
     }
 }
 

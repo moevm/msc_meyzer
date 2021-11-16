@@ -22,7 +22,7 @@ public:
     TArray<TArray<FVector2D>> _uvs;
     TArray<TArray<FProcMeshTangent>> _tangents;
     TArray<TArray<FLinearColor>> _vertexColors;
-
+    TArray<FTransform> _transforms;
 
     UFUNCTION(BlueprintCallable, Category = "Assimp")
     bool getSection(int32 index, TArray<FVector>& Vertices, TArray<int32>& Faces, TArray<FVector>& Normals, TArray<FVector2D>& UV, TArray<FProcMeshTangent>& Tangents);
