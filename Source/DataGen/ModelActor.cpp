@@ -3,6 +3,8 @@
 
 #include "ModelActor.h"
 
+#include "Materials/Material.h"
+
 // Sets default values
 AModelActor::AModelActor()
 {
@@ -38,23 +40,46 @@ void AModelActor::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-void AModelActor::SetModel(const UAssimpModel& assimpModel)
+
+void AModelActor::AddMesh(int32_t section, const TArray<FVector>& vertices, 
+    const TArray<int32_t>& indices, const TArray<FVector>& normals, 
+    const TArray<FVector2D>& uvs, const TArray<FLinearColor>& vertexColors, 
+    const TArray<FProcMeshTangent>& tangents)
 {
-    for (int32 section = 0; section < assimpModel._sectionCount; ++section)
+    mesh->CreateMeshSection_LinearColor(section, vertices, indices, 
+        normals, uvs, vertexColors, tangents, true);
+    auto MaterialDyn = UMaterialInstanceDynamic::Create(Material, this);
+    mesh->SetMaterial(section, MaterialDyn);
+}
+
+void AModelActor::SetMaterialParameters(int32_t section, const MaterialParameters& value)
+{
+    auto material = Cast<UMaterialInstanceDynamic>(mesh->GetMaterial(section));
+
+    material->SetScalarParameterValue("DiffuseSource", static_cast<float>(value.DiffuseType));
+    switch (value.DiffuseType)
     {
-        mesh->CreateMeshSection_LinearColor(section, assimpModel._vertices[section], assimpModel._indices[section], assimpModel._normals[section], assimpModel._uvs[section], assimpModel._vertexColors[section], assimpModel._tangents[section], true);
+    case SourceType::Scalar:
+        // TODO
+        break;
+    case SourceType::Vertex:
+        // TODO
+        break;
+    case SourceType::Texture:
+        material->SetTextureParameterValue("DiffuseTexture", value.DiffuseTexture);
+        break;
+    default:
+        break;
     }
 
-    for (int32 i = 0; i < mesh->GetNumSections(); ++i)
-    {
-        auto MaterialDyn = UMaterialInstanceDynamic::Create(Material, this);
-        mesh->SetMaterial(i, MaterialDyn);
-    }
+    params = value; // TODO: Allow editing in editor?
+}
 
+void AModelActor::FinishConstruction()
+{
     mesh->CastShadow = true;
     mesh->SetCollisionObjectType(ECC_WorldDynamic);
     mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     mesh->SetCollisionResponseToAllChannels(ECR_Block);
-    mesh->UpdateCollisionProfile();
+    //mesh->UpdateCollisionProfile();
 }
-

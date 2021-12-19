@@ -3,6 +3,13 @@
 #include "AssimpBPLibrary.h"
 #include "Logging/LogMacros.h"
 #include "Kismet/GameplayStatics.h"
+#include "RenderUtils.h"
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 namespace 
 {
@@ -22,12 +29,30 @@ namespace
         
         return result;
     }
+    
+    UTexture2D* loadTextureFromFile(UObject* outer, const FString& path, const FName inName = NAME_None)
+    {
+        //TArray<uint8_t> pixelData;
+        //pixelData.Empty();
+        //return loadTextureFromMemory(outer, pixelData, sizeX, sizeY, format, inName);
+    }
+
+    UTexture2D* loadTextureFromMemory(UObject* outer, const uint8_t* pixelData, int32 inSizeX, int32 inSizeY, EPixelFormat inFormat = PF_R8G8B8A8, const FName inName = NAME_None)
+    {
+        UTexture2D* texture = UTexture2D::CreateTransient(inSizeX, inSizeY, inFormat, inName);
+        void* TextureData = texture->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+        FMemory::Memcpy(TextureData, pixelData, 4 * inSizeX * inSizeY);
+        texture->PlatformData->Mips[0].BulkData.Unlock();
+        texture->UpdateResource();
+        return texture;
+    }
 }
 
 AModelActor* UAssimpBPLibrary::LoadModel(const FString& actorName, const FString& modelPath, const FTransform& transform, AActor* parent, FString& ErrorCode)
 {
-    Assimp::Importer importer;
     // TODO: Add map and check if loaded already
+
+    Assimp::Importer importer;
     std::string filename(TCHAR_TO_UTF8(*modelPath));
     const aiScene* scene = importer.ReadFile(filename, aiProcessPreset_TargetRealtime_MaxQuality);
 
@@ -37,88 +62,150 @@ AModelActor* UAssimpBPLibrary::LoadModel(const FString& actorName, const FString
         return nullptr;
     }
 
-    auto* model = NewObject<UAssimpModel>();
-    model->_sectionCount = 0;
-    ProcessNode(model, scene->mRootNode, scene);
+    auto modelActor = NewObject<AModelActor>(parent, AModelActor::StaticClass());
+    ProcessNode(modelActor, scene->mRootNode, scene);
 
-    auto deferredActor = Cast<AModelActor>(UGameplayStatics::BeginDeferredActorSpawnFromClass(parent, AModelActor::StaticClass(), FTransform::Identity));
-    if (deferredActor != nullptr)
-    {
-        deferredActor->SetModel(*model);
-        UGameplayStatics::FinishSpawningActor(deferredActor, FTransform::Identity);
-    }
-
-    return deferredActor;
+    return modelActor;
 }
 
-void UAssimpBPLibrary::ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene, const FTransform& parentTransform /*= FTransform::Identity*/)
+void UAssimpBPLibrary::ProcessNode(AModelActor* parent, const aiNode* node, const aiScene* scene)
 {
     const FTransform currentTransform = getFTransform(node->mTransformation);
 
-    for (uint32 i = 0; i < node->mNumMeshes; ++i) {
-        aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-        ProcessMesh(model, mesh, scene);
-        model->_transforms.Add(currentTransform);
-        ++model->_sectionCount;
-    }
+    AModelActor* subModel = nullptr;
+    if (scene->mRootNode != node)
+    {
+        // Create Model with specified transform, put it in parent one
+        subModel = Cast<AModelActor>(UGameplayStatics::BeginDeferredActorSpawnFromClass(
+            parent, AModelActor::StaticClass(), currentTransform));
+        if (subModel != nullptr)
+        {
+            for (uint32_t i = 0; i < node->mNumMeshes; ++i) {
+                const aiMesh* const mesh = scene->mMeshes[node->mMeshes[i]];
+                ProcessMesh(subModel, mesh, scene, i);
+            }
+            subModel->FinishConstruction();
+            UGameplayStatics::FinishSpawningActor(subModel, currentTransform);
+        }
 
+        subModel->AttachToActor(parent, FAttachmentTransformRules::KeepRelativeTransform);
+    }
+    else
+    {
+        subModel = parent;
+    }
+    
     // do the same for all of its children
     for (uint32 i = 0; i < node->mNumChildren; ++i) {
-        ProcessNode(model, node->mChildren[i], scene, currentTransform);
+        // Create child models
+        ProcessNode(subModel, node->mChildren[i], scene);
     }
 }
 
-void UAssimpBPLibrary::ProcessMesh(UAssimpModel* model, aiMesh* mesh, const aiScene* scene)
+void UAssimpBPLibrary::ProcessMesh(AModelActor* model, const aiMesh* mesh, 
+    const aiScene* scene, int32_t section)
 {
-    // the very first time this method runs, we'll need to create the empty arrays
-    // we can't really do that in the class constructor because we don't know how many meshes we'll read, and this data can change between imports
-    if (model->_vertices.Num() <= model->_sectionCount) {
-        model->_vertices.AddZeroed();
-        model->_normals.AddZeroed();
-        model->_uvs.AddZeroed();
-        model->_tangents.AddZeroed();
-        model->_vertexColors.AddZeroed();
-        model->_indices.AddZeroed();
-    }
+    MaterialParameters materialParams;
 
-    // we reinitialize the arrays for the new data we're reading
-    model->_vertices[model->_sectionCount].Empty();
-    model->_normals[model->_sectionCount].Empty();
-    model->_uvs[model->_sectionCount].Empty();
-    model->_tangents[model->_sectionCount].Empty();
-    model->_vertexColors[model->_sectionCount].Empty();
-    model->_indices[model->_sectionCount].Empty();
+    TArray<FVector> vertices;
+    TArray<int32> indices;
+    TArray<FVector> normals;
+    TArray<FVector2D> uvs;
+    TArray<FProcMeshTangent> tangents;
+    TArray<FLinearColor> vertexColors;
+
+    vertices.Empty();
+    normals.Empty();
+    uvs.Empty();
+    tangents.Empty();
+    vertexColors.Empty();
+    indices.Empty();
 
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
-        FVector vertex, normal;
-        // process vertex positions, normals and UVs
-        vertex.X = mesh->mVertices[i].x;
-        vertex.Y = mesh->mVertices[i].y;
-        vertex.Z = mesh->mVertices[i].z;
+        vertices.Emplace(
+            mesh->mVertices[i].x,
+            mesh->mVertices[i].y,
+            mesh->mVertices[i].z
+        );
+        normals.Emplace(
+            mesh->mNormals[i].x,
+            mesh->mNormals[i].y,
+            mesh->mNormals[i].z
+        );
 
-        normal.X = mesh->mNormals[i].x;
-        normal.Y = mesh->mNormals[i].y;
-        normal.Z = mesh->mNormals[i].z;
+        if (mesh->HasTextureCoords(0))
+        {
+            uvs.Emplace(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+        }
+        else
+        {
+            uvs.Emplace(0.f, 0.f);
+        }
 
-        // if the mesh contains tex coords
-        if (mesh->mTextureCoords[0]) {
-            FVector2D uvs;
-            uvs.X = mesh->mTextureCoords[0][i].x;
-            uvs.Y = mesh->mTextureCoords[0][i].y;
-            model->_uvs[model->_sectionCount].Add(uvs);
+        if (mesh->HasVertexColors(0))
+        {
+            const auto& color = mesh->mColors[0][i];
+            vertexColors.Emplace(color.r, color.g, color.b, color.a);
+            materialParams.DiffuseType = SourceType::Vertex;
         }
-        else {
-            model->_uvs[model->_sectionCount].Add(FVector2D(0.f, 0.f));
-        }
-        model->_vertices[model->_sectionCount].Add(vertex);
-        model->_normals[model->_sectionCount].Add(normal);
     }
-
     // process indices
-    for (uint32 i = 0; i < mesh->mNumFaces; ++i) {
-        aiFace face = mesh->mFaces[i];
-        model->_indices[model->_sectionCount].Add(face.mIndices[2]);
-        model->_indices[model->_sectionCount].Add(face.mIndices[1]);
-        model->_indices[model->_sectionCount].Add(face.mIndices[0]);
+    for (uint32 i = 0; i < mesh->mNumFaces; ++i) 
+    {
+        const aiFace& face = mesh->mFaces[i];
+        indices.Add(face.mIndices[2]);
+        indices.Add(face.mIndices[1]);
+        indices.Add(face.mIndices[0]);
     }
+
+    model->AddMesh(section, vertices, indices, normals, uvs, vertexColors, tangents);
+
+    auto meshMaterial = scene->mMaterials[mesh->mMaterialIndex];
+
+    aiString path;
+    if (materialParams.DiffuseType != SourceType::Vertex &&
+        aiReturn_SUCCESS == meshMaterial->GetTexture(aiTextureType::aiTextureType_DIFFUSE, 0, &path))
+    {
+        // TODO: Make texture loading as separate function
+        if (path.data[0] == '*') // Texture is embedded
+        {
+            const FString texturePath{ path.C_Str() + 1 }; // Skip asterix
+            const auto idx = FCString::Atoi(*texturePath);
+            const aiTexture* aTexture = scene->mTextures[idx];
+            auto loadedData = reinterpret_cast<uint8_t*>(aTexture->pcData);
+            auto width = aTexture->mWidth;
+            auto height = aTexture->mHeight;
+
+            if (height == 0)
+            {
+                // Texture is compressed, decompress it
+                int w, h, n;
+                loadedData = stbi_load_from_memory(loadedData, aTexture->mWidth, &w, &h, &n, 4);
+                checkf(n == 4, TEXT("Only images with 4 channels are supported at the moment"));
+                width = w;
+                height = h;
+            }
+
+            materialParams.DiffuseType = SourceType::Texture;
+            materialParams.DiffuseTexture = loadTextureFromMemory(model, loadedData, width, height);
+            checkf(materialParams.DiffuseTexture, TEXT("Could not load texture for some reason"));
+            // TODO: Check memory leaks with aiTexture and loaded image from stb
+        }
+
+        // TODO: Get full path of the texture
+        //FString folderPath = FPaths::GetPath(meshPath);
+        //UE_LOG(LogTemp, Warning, TEXT("%s"), *FString(path.C_Str()));
+        //materialParams.DiffuseType = SourceType::Texture;
+        //materialParams.DiffuseTexture = Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), NULL, *texturePath));
+
+    }
+
+    // TODO: Check remaining textures:
+    // Metallic
+    // Specular
+    // Roughness
+
+    // Prompt to enter value for use if texture is not found?
+
+    model->SetMaterialParameters(section, materialParams);
 }

@@ -4,15 +4,13 @@
 
 #include "CoreMinimal.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
-
-#include "AssimpModel.h"
 #include "ModelActor.h"
-#include "Components/StaticMeshComponent.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AssimpBPLibrary.generated.h"
+
+struct aiNode;
+struct aiScene;
+struct aiMesh;
 
 /**
  * 
@@ -27,6 +25,6 @@ class DATAGEN_API UAssimpBPLibrary : public UBlueprintFunctionLibrary
 
 private:
 
-	static void ProcessMesh(UAssimpModel* model, aiMesh* mesh, const aiScene* scene);
-	static void ProcessNode(UAssimpModel* model, aiNode* node, const aiScene* scene, const FTransform& parentTransform = FTransform::Identity);
+	static void ProcessNode(AModelActor* parent, const aiNode* node, const aiScene* scene);
+	static void ProcessMesh(AModelActor* model, const aiMesh* mesh, const aiScene* scene, int32_t section);
 };
